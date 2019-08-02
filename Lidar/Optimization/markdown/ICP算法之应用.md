@@ -1,4 +1,4 @@
-# ICP-SLAM算法
+# ICP算法之应用
 
 ICP-SLAM算法的应用程序在CMetricMapBuilderICP类中，包含了slam初始化，slam处理，地图的加载和保存，路径的加载和保存等操作。
 

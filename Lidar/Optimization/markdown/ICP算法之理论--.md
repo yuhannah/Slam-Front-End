@@ -2,7 +2,7 @@
 
 ---
 
-# ICP-SLAM原理及理论推导
+# ICP算法之理论
 
 # ICP算法
 
@@ -121,21 +121,7 @@ I_T=\frac{\sum_{i=1}^{N}p_T(i)*J_b(i)}{n_T*P_T}
 $$
 对其求偏导数可得:
 
-# ICP-SLAM
 
-ICP-SLAM是一种增量式地建图,因此随时间推移会产生累积误差,其可只用激光雷达数据,也可先通过里程计数据给出ICP迭代的初始值,然后通过ICP算法迭代计算精确的位姿,因为激光雷达的测距精度很高,所以ICP-SLAM在小范围段时间内的定位建图效果较好,算法实时性也可满足要求.
-
-其算法的主要耗时在于ICP过程中确定点云匹配关系,误匹配(错误的数据关联)将导致计算结果发散,因此ICP-SLAM对初始值比较敏感,由于激光雷达数据缺少对环境的纹理描述,误匹配不可避免,这是一个未知的数据关联问题,也是难点所在.所以其关键在于如何降低相邻两帧点云的误匹配率,对相应的数据关联有个较优的估计.算法另一耗时的地方在于地图的更新过程,采用2D栅格地图,将当前帧数据按ICP计算出的位姿插入(投射)到已有地图中,同时更新相应被覆盖栅格的概率值.
-
-# mrpt库中ICP-SLAM`的具体实现`
-
-​	计算点云与点云(地图)的匹配关系函数mrpt::maps::CMetricMap::determinMatching2D()/mrpt:maps::COccupancyGridMap2D::determinMatching2D()/mrpt::maps::CPointsMap::determinMatching2D(),主要是将待匹配点云通过初始位姿转换到已有地图中,然后对在地图中搜索每个点的最近邻(1个或多个),从而确定点云与地图的匹配关系,并输出匹配点对集合和匹配率,算法控制参数主要通过mrpt::maps::TMatchingParams结构体设置,其主要思想仍是通过最小距离值来判定两个点相互匹配(同一个空间点),即ICP中的匹配原理
-
-​	计算均方误差和最小值函数mrpt::tfest::se2_l2(),直接给出解析解,采用的是Boollean-ICP(classic ICP)
-
-​	迭代计算点云与点与(地图)的位姿转换关系函数
-
-mrpt::slam::CICP::AlignPDF() 根据CICP::TConfigParams参数配置可选择使用classic method或LM method 两种不同解法,主要是在求解误差函数最小值时不同,前者直接用封闭解给出,关键函数ICP_Method_Classic(),,后者通过LM迭代进行非线性优化求解,详见ICP部分.
 
 
 
