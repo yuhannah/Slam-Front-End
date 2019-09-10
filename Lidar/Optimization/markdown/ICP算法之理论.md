@@ -18,7 +18,7 @@
 
 首先考虑两帧点云之间的相对位姿变换推导。局部点云与全局点云之间的绝对位姿变换道理上类似，作补充说明。
 
-令第$k$时刻的机器坐标系为$XY_k$，对应获取的雷达点云在机器坐标系下的集合表示为${q_k}$，其中第$j$个点的坐标表示为$(x_k(j), y_k(j))$。当机器运动到第$k+1$时刻，对应获取的雷达点云在机器坐标系$XY_{k+1}$下的集合表示为${q_{k+1}}$。
+令第$k$时刻的机器坐标系为$XY_k$，对应获取的雷达点云在机器坐标系下的集合表示为${q_k}$，其中第$j$个点的坐标表示为$(x_k(j), y_k(j))$。当机器运动到第$k+1$时刻，对应获取的雷达点云在机器坐标系$XY_{k+1}$下的集合表示为${q_{k+1}}​$。
 
 记第$k$时刻到第$k+1$时刻，机器的位姿变化了$T_k(\Delta x, \Delta y, \Delta \phi)$。自定义任意世界坐标系$XY_o$，下面将这两帧雷达点云放在同一个坐标系中表示。
 
@@ -38,7 +38,7 @@ ICP算法就是找到绿色点云与黄色点云之间的匹配点对，将绿�
 
 ![ICP匹配示意图-2](ICP算法之理论.assets/ICP匹配示意图-2.png)
 
-第一步，将在机器坐标系$XY_{k+1}$下的某一点${q_{k+1}(j)}$转换到机器坐标系$XY_k$下，得到转换后的点$\hat{q}_{k}(j)$。初始的估计坐标变换来自于里程计$T_0(\Delta x_o,\Delta y_o,\Delta \phi_o)$：
+**第一步**，将在机器坐标系$XY_{k+1}$下的某一点${q_{k+1}(j)}$转换到机器坐标系$XY_k$下，得到转换后的点$\hat{q}_{k}(j)$。初始的估计坐标变换来自于里程计$T_0(\Delta x_o,\Delta y_o,\Delta \phi_o)$：
 $$
 \begin{bmatrix}
 \hat{x}_k(j) \\
@@ -70,13 +70,13 @@ y_{k+1}(j)
 $$
 注：$\Delta \phi$表示准时针转动。
 
-第二步，遍历新一帧经过坐标转换后的点云$\{\hat{q}_k\}$，对坐标转换后的点云中的每个点$\hat{q}_k(j)$计算其与旧一帧的点云$\{q_k\}$中每个点之间的平方距离，记为$e(i,j)$：
+**第二步**，遍历新一帧经过坐标转换后的点云$\{\hat{q}_k\}$，对坐标转换后的点云中的每个点$\hat{q}_k(j)$计算其与旧一帧的点云$\{q_k\}$中每个点之间的平方距离，记为$e(i,j)$：
 $$
 e(i,j)=(x_k(i)-\hat{x}_k(j))^2+(y_k(i)-\hat{y}_k(j))^2
 $$
 注：其中，$i\in \text{number of } \{q_k\}$，$j \in \text{number of }\{\hat{q}_k\} $。
 
-第三步，对每个经过坐标转换后的点$\hat{q}_k(j)$，都有一帧数量的平方距离，取其中平方距离最小的对应点作为$\hat{q}_k(j)$的匹配点$q_k(J(j))$：
+**第三步**，对每个经过坐标转换后的点$\hat{q}_k(j)$，都有一帧数量的平方距离，取其中平方距离最小的对应点作为$\hat{q}_k(j)$的匹配点$q_k(J(j))$：
 $$
 J(j)=m, \text{if } e(m,j)=\min^N_{i=0}[e(i,j)]
 $$
@@ -89,7 +89,7 @@ e_{T_k}(j)=(x_k(J(j))-\hat{x}_k(j))^2+(y_k(J(j))-\hat{y}_k(j))^2 \\
 =(x_k(J(j))-x_{k+1}(j)\cos(\Delta \phi)+y_{k+1}(j)\sin(\Delta \phi)-\Delta x)^2 \\ 
 +(y_k(J(j))-x_{k+1}(j)\sin(\Delta \phi)-y_{k+1}(j)\cos(\Delta \phi)-\Delta y)^2
 $$
-注：步骤2-3合在一起可以用KD-tree来加速计算，直接在当前猜测位姿变换下寻找当前帧在旧一帧中的最近点，并计算平方距离。
+==注：步骤2-3合在一起可以用KD-tree来加速计算，直接在当前猜测位姿变换下寻找当前帧在旧一帧中的最近点，并计算平方距离。==
 
 实际并不是所有的点都会参与计算，需要排除一部分外点，比如说在寻找最近点时，能找到的最近点距离很远，很可能是两个不相关的点，这样的点对不在后续计算范围内，容易导致匹配误差。外点通过设定阈值来去除：
 $$
@@ -99,7 +99,7 @@ p_{T_k}(j)=
 1 & \text{otherwise}
 \end{cases}
 $$
-注：这个筛选外点的系数为布尔变量，因此classic-ICP又称boolean-ICP。
+==注：这个筛选外点的系数为布尔变量，因此classic-ICP又称boolean-ICP。==
 
 最后剩余的有效点个数为：
 $$
@@ -117,14 +117,12 @@ I_{T_k}=\frac{\sum^N_{j=0}[p_{T_k}(j)e_{T_j}(j)]}{n_{T_k}}\frac{1}{P_{T_k}}
 $$
 注：其中，前一个分数表示误差均值，后一个分数表示惩罚低的匹配率。
 
-最后，当上式取得最小值时，对应的$T_k$就是当前两帧点云之间的位姿变换。对$I_{T_k}$求偏导：
+**最后**，当上式取得最小值时，对应的$T_k$就是当前两帧点云之间的位姿变换。对$I_{T_k}$求偏导：
 $$
 \frac{\partial I_{T_k}}{\partial \Delta x}
 =0=\frac{1}{n_{T_k}P_{T_k}}\frac{\partial \sum^N_{j=0}[p_{T_k}(j)e_{T_j}(j)]}{\partial \Delta x} \\
 =\frac{1}{n_{T_k}P_{T_k}} \sum^N_{j=0}[p_{T_k}(j) \frac{\partial e_{T_j}(j)}{\partial \Delta x}] \\
 =\frac{1}{n_{T_k}P_{T_k}} \sum^N_{j=0}[p_{T_k}(j)(-2(x_k(J(j))-x_{k+1}(j)\cos(\Delta \phi)+y_{k+1}(j)\sin(\Delta \phi)-\Delta x))]
-
-
 $$
 省略不变的系数后，得到：
 $$
@@ -289,6 +287,37 @@ bool  tfest::se2_l2(
 
 一个完整的ICP迭代过程，从最初的假设位姿$T_0(0,0,0)$或者由里程计提供一个初始假设位姿$T_0(\Delta x_0, \Delta y_0,\Delta \phi_0)$，进行一次ICP循环过程，经历上述四步，找到当前假设位姿下的配对点，并用解析公式求得算法认为的位姿增量$T_k(\Delta x_k,\Delta y_k,\Delta \phi_k)$。此时需要判断迭代是否收敛，位姿是否已经达到最优，配对点是否不再发生变化或者变化小于阈值等。如果没有收敛，ICP将用当前计算出的位姿增量$T_k$作为下次迭代的假设位姿，继续四步迭代计算。直到收敛。
 
+**步骤：**
+
+1. 根据初始位姿$T_0$寻找点云之间的配对关系$c(i)$
+2. 根据配对关系$c(i)$计算点云之间的误差平方和$J$
+3. 根据最小化误差平方和$J$计算解析解位姿$T$
+4. 判断解析解是否收敛，若不收敛，则更新初始位姿$T_0=T$继续迭代，反之，结束迭代，获得局部最优解
+
+**伪代码：**
+
+```pseudocode
+for iter = 1 : nIteration
+	transform newScan by T0
+    for i = 1 : nNewScanSize
+        d_min = 无穷大;
+        for k = 1 : nRefScanSize
+            d_ik = Euclidean(S_new(i),S_ref(k))
+            if d_ik < d_min
+                d_min = d_ik
+                c(i) = k
+            end if
+        end for
+    end for
+    use c(i) to cal T
+    if |T-T0| < threshold
+    	break;
+    else
+    	T0 = T
+    end if
+end for
+```
+
 **结论：**
 
 - 解析解的推导如上述所示。
@@ -303,6 +332,225 @@ bool  tfest::se2_l2(
 
 ### LM优化解的推导
 
+ICP算法的另一种求解方式是优化方式，常用的算法为LM优化算法（iterative least-squares: Levenberg-Marquardt，是一种damped Gauss-Newton method算法）。
 
+在单次迭代过程中，对两帧点云根据初始位姿$T_0$寻找配对点的过程是一样的。区别在于解析解方法直接根据配对信息计算出位姿，而优化方法要经过内部的迭代过程获取当前最优的位姿。
 
+LM算法需要对每一个待估参数求偏导，所以，如果目标函数$f$非常复杂，或者待估参数相当地多，那么可能不适合使用LM算法，而可以选择Powell算法——Powell算法不需要求导。
+
+至于这个求导过程是如何实现的，一种方法是拿到函数的方程，然后手工计算出其偏导数方程，进而在函数中直接使用，这样做是最直接，求导误差也最小的方式。不过，在不知道函数的形式之前，就不能这样做了——例如，提供给了用户在界面上输入数学函数式的机会，然后在程序中解析其输入的函数，再做后面的处理。在这种情况下，需要使用数值求导算法。一些优秀的求导算法——例如[Ridders算法](http://www.codelast.com/?p=1419)——在一次求导数值过程中，需要计算的函数值次数也会达到5次以上。这样的话，它当然要比手工求出导函数（只需计算一次，就可以得到导数值）效率要差得多了。
+
+关于高斯-牛顿方法需自行补充。该方法在每次迭代中求出一个步长$\bf{h}$，也就是位姿的变化量，使得位姿从初始位姿起，逐渐下降到局部最优的位姿。步长$\bf{h}_{\rm{lm}}$被定义为：
+$$
+(\bf{J}^\rm{T}\bf{J}+\mu \bf{I})\bf{h}_\rm{lm}=-\bf{g} \quad \rm{\text{with}} \quad \bf{g}=\bf{J}^{\rm{T}}\bf{f} \quad \rm{\text{and}} \quad \mu \ge 0 \quad \rm{\text{.}}
+$$
+这里，$\bf{J}=\bf{J(\rm{x})}$和$\bf{f}=\bf{f(\rm{x})}$。步长$\bf{h_{\rm{lm}}}$被确保为下降方向。
+
+$\mu$值称为阻尼参数。根据不同的$\mu$值，步长$\bf{h_{\rm{lm}}}$有不同的近似结果，对远离最优解时取小的变化步长，对靠近最优值时取大的变化步长。$\mu$值同时影响了下降方向和步长，使得该方法不需要**线搜索**。
+$$
+\bf{h}_{\rm{lm}} =
+\begin{cases}
+-\frac{1}{\mu}\bf{g}=-\frac{1}{\mu}\bf{F'}\rm{(}\bf{x}\rm{)},  & \text{if $\mu$ is large} \\
+\bf{h}_{\rm{gn}}, & \text{if $n$ is small}
+\end{cases}
+$$
+**伪代码：**
+
+![LM算法流程](ICP算法之理论.assets/LM算法流程.png)
+
+MRPT中的实现：
+
+```c++
+// Compute the estimated pose through iterative least-squares: Levenberg-Marquardt
+// ----------------------------------------------------------------------
+dJ_dq.setSize(3,nCorrespondences);  // The jacobian of the error function wrt the transformation q
+
+double  lambda = options.LM_initial_lambda;		// The LM parameter
+
+double  ccos = cos(q.phi());
+double	csin = sin(q.phi());
+
+double  w1,w2,w3;
+double  q1,q2,q3;
+double  A,B;
+const double  Axy = options.Axy_aprox_derivatives;		// For approximating the derivatives
+
+// Compute at once the square errors for each point with the current "q" and the transformed points:
+std::vector<float> sq_errors;
+correspondences.squareErrorVector( q, sq_errors, other_xs_trans,other_ys_trans);
+double OSE_initial = math::sum( sq_errors );
+
+// Compute "dJ_dq" : 3-9ms
+// ------------------------------------
+double  rho2 = square( options.kernel_rho );
+mrpt::utils::TMatchingPairList::iterator	it;
+std::vector<float>::const_iterator other_x_trans,other_y_trans;
+size_t  i;
+
+for (i=0,
+     it=correspondences.begin(),
+     other_x_trans = other_xs_trans.begin(),
+     other_y_trans = other_ys_trans.begin();
+     i<nCorrespondences;
+     ++i, ++it,++other_x_trans,++other_y_trans )
+{
+    // Jacobian: dJ_dx
+    // --------------------------------------
+    //#define ICP_DISTANCES_TO_LINE
+
+    #ifndef ICP_DISTANCES_TO_LINE
+    w1= *other_x_trans-Axy;
+    q1 = m1->squareDistanceToClosestCorrespondence( w1, *other_y_trans );
+    q1= kernel( q1, rho2 );
+
+    w2= *other_x_trans;
+    q2 = m1->squareDistanceToClosestCorrespondence( w2, *other_y_trans );
+    q2= kernel( q2, rho2 );
+
+    w3= *other_x_trans+Axy;
+    q3 = m1->squareDistanceToClosestCorrespondence( w3, *other_y_trans );
+    q3= kernel( q3, rho2 );
+    #else
+    // The distance to the line that interpolates the TWO closest points:
+    float  x1,y1, x2,y2, d1,d2;
+    m1->kdTreeTwoClosestPoint2D(
+        *other_x_trans, *other_y_trans, 	// The query
+        x1, y1,   // Closest point #1
+        x2, y2,   // Closest point #2
+        d1,d2);
+
+    w1= *other_x_trans-Axy;
+    q1 = math::closestSquareDistanceFromPointToLine( w1, *other_y_trans,  x1,y1, x2,y2 );
+    q1= kernel( q1, rho2 );
+
+    w2= *other_x_trans;
+    q2 = math::closestSquareDistanceFromPointToLine( w2, *other_y_trans,  x1,y1, x2,y2 );
+    q2= kernel( q2, rho2 );
+
+    w3= *other_x_trans+Axy;
+    q3 = math::closestSquareDistanceFromPointToLine( w3, *other_y_trans,  x1,y1, x2,y2 );
+    q3= kernel( q3, rho2 );
+    #endif
+    //interpolate
+    A=(  (q3-q2)/((w3-w2)*(w3-w1))  ) - (  (q1-q2)/((w1-w2)*(w3-w1))  );
+    B=(   (q1-q2)+(A*((w2*w2)-(w1*w1)))   )/(w1-w2);
+
+    dJ_dq.get_unsafe(0,i) = (2*A* *other_x_trans)+B;
+
+    // Jacobian: dJ_dy
+    // --------------------------------------
+    w1= *other_y_trans-Axy;
+    #ifdef ICP_DISTANCES_TO_LINE
+    q1 = math::closestSquareDistanceFromPointToLine( *other_x_trans, w1,  x1,y1, x2,y2 );
+    q1= kernel( q1, rho2 );
+    #else
+    //square(it->this_x - *other_x_trans)+ square( it->this_y - w1 )!=m1->squareDistanceToClosestCorrespondence( *other_x_trans, w1 )
+    q1= kernel( square(it->this_x - *other_x_trans)+ square( it->this_y - w1 ),  rho2 );
+    #endif
+
+    w2= *other_y_trans;
+    // q2 is alreay computed from above!
+    //q2 = m1->squareDistanceToClosestCorrespondence( *other_x_trans, w2 );
+    //q2= kernel( square(it->this_x - *other_x_trans)+ square( it->this_y - w2 ),  rho2 );
+
+    w3= *other_y_trans+Axy;
+    #ifdef ICP_DISTANCES_TO_LINE
+    q3 = math::closestSquareDistanceFromPointToLine( *other_x_trans, w3,  x1,y1, x2,y2 );
+    q3= kernel( q3, rho2 );
+    #else
+    q3= kernel( square(it->this_x - *other_x_trans)+ square( it->this_y - w3 ),  rho2 );
+    #endif
+
+    //interpolate
+    A=(  (q3-q2)/((w3-w2)*(w3-w1))  ) - (  (q1-q2)/((w1-w2)*(w3-w1))  );
+    B=(   (q1-q2)+(A*((w2*w2)-(w1*w1)))   )/(w1-w2);
+
+    dJ_dq.get_unsafe(1,i) = (2*A* *other_y_trans)+B;
+
+    // Jacobian: dR_dphi
+    // --------------------------------------
+    dJ_dq.get_unsafe(2,i) = dJ_dq.get_unsafe(0,i) * ( -csin * it->other_x - ccos * it->other_y )  +
+        dJ_dq.get_unsafe(1,i) * (  ccos * it->other_x - csin * it->other_y );
+
+} // end for each corresp.
+
+// Now we have the Jacobian in dJ_dq.
+
+// Compute the Hessian matrix H = dJ_dq * dJ_dq^T : 1ms
+CMatrixFloat  H_(3,3);
+H_.multiply_AAt(dJ_dq);
+
+CMatrixFixedNumeric<float,3,3>  H = CMatrixFixedNumeric<float,3,3>(H_);
+
+bool  keepIteratingLM = true;
+
+// ---------------------------------------------------
+// Iterate the inner LM loop until convergence:
+// ---------------------------------------------------
+q_new = q;
+
+std::vector<float>  new_sq_errors, new_other_xs_trans, new_other_ys_trans;
+size_t   		nLMiters = 0;
+const size_t 	maxLMiters = 100;//100iter->50ms
+
+while ( keepIteratingLM &&  ++nLMiters<maxLMiters)
+{
+    // The LM heuristic is:
+    //  x_{k+1} = x_k  - ( H + \lambda diag(H) )^-1 * grad(J)
+    //  grad(J) = dJ_dq * e (vector of errors)
+    C = H;
+    for (i=0;i<3;i++)
+        C(i,i) *= (1+lambda);	// Levenberg-Maquardt heuristic
+
+    C_inv = C.inv();
+
+    // LM_delta = C_inv * dJ_dq * sq_errors
+    Eigen::VectorXf  dJsq, LM_delta;
+    dJ_dq.multiply_Ab( Eigen::Map<Eigen::VectorXf>(&sq_errors[0],sq_errors.size()), dJsq );
+    C_inv.multiply_Ab(dJsq,LM_delta);
+
+    q_new.x( q.x() - LM_delta[0] );
+    q_new.y( q.y() - LM_delta[1] );
+    q_new.phi( q.phi() - LM_delta[2] );
+
+    // Compute the new square errors:
+    // ---------------------------------------
+    correspondences.squareErrorVector(
+        q_new,
+        new_sq_errors,
+        new_other_xs_trans,
+        new_other_ys_trans);
+
+    float OSE_new = math::sum( new_sq_errors );
+
+    bool improved = OSE_new < OSE_initial;
+
+    #if 0  // Debuggin'
+    cout << "_____________" << endl;
+    cout << "q -> q_new   : " << q << " -> " << q_new << endl;
+    printf("err: %f  -> %f    lambda: %e\n", OSE_initial ,OSE_new, lambda );
+    cout << "\\/J = "; utils::operator <<(cout,dJsq); cout << endl;
+    mrpt::system::pause();
+    #endif
+
+    keepIteratingLM =
+        fabs(LM_delta[0])>options.minAbsStep_trans ||
+        fabs(LM_delta[1])>options.minAbsStep_trans ||
+        fabs(LM_delta[2])>options.minAbsStep_rot;
+
+    if(improved)
+    {
+        //If resids have gone down, keep change and make lambda smaller by factor of 10
+        lambda/=10;
+        q=q_new;
+        OSE_initial = OSE_new;
+    }
+    else
+    {
+        // Discard movement and try with larger lambda:
+        lambda*=10;
+    }
+
+} // end iterative LM
+```
 

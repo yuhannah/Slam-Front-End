@@ -18,16 +18,15 @@ struct SLAM_IMPEXP TConfigParams : public mrpt::utils::CLoadableOptions {
     //机器人位姿没有发生明显变化，对地图的变化影响很小，就不更新地图，节约运行时间
     double insertionLinDistance;//可将新的观测值插入地图的机器人位姿的距离增量下限
     double insertionAngDistance;//可将新的观测值插入地图的机器人位姿的角度增量下限
-    
-    //slam估计的位姿与里程计估计的位姿之间差别很大，有可能发生错误匹配，舍弃slam估计位姿
-    double maxInsertionLinDistance;//认为slam估计的位姿有效的距离增量上限
-    double maxInsertionAngDistance;//认为slam估计的位姿有效的角度增量上限
-    
+     
     //机器人位姿没有发生明显变化，就不进行ICP，节约运行时间
     double localizationLinDistance;//可将新的观测值用于ICP的机器人位姿的距离增量下限
     double localizationAngDistance;//可将新的观测值用于ICP的机器人位姿的角度增量下限
 
     double minICPgoodnessToAccept;//能够接受的最小ICP匹配率(默认0.4) 
+    double maxSqrDistToAccept;//能够接受的最大平方误差
+    double maxlikelihoodDiff;//能够接受的最大似然差
+    double maxMapOutEdgeRatioToAccept;//能够接收的最大地图超出边界的比例
     
     mrpt::utils::VerbosityLevel &verbosity_level;
 
@@ -72,22 +71,20 @@ const bool we_skip_ICP_pose_correction =
 
 ```c++
 bool update = firstTimeForThisSensor ||
-    ( (!can_do_icp || (icpReturn.goodness>ICP_options.minICPgoodnessToAccept && !poseIncIsLarge && !sqrDistIsLarge)) &&
+    ( (!can_do_icp || m_isAcceptedPose) &&
      ( m_distSinceLastInsertion[obs->sensorLabel].lin >= ICP_options.insertionLinDistance ||
       m_distSinceLastInsertion[obs->sensorLabel].ang >= ICP_options.insertionAngDistance ) );
 ```
 
 ## ICP-SLAM应用程序流程
 
-![ICP-SLAM流程图-1](ICP算法.assets/ICP-SLAM流程图-1.png)
+![ICP-SLAM流程图-1](ICP算法之应用.assets/ICP-SLAM流程图-1.png)
 
 里程计用来做初始位姿估计以及更新SLAM中的有关里程计的辅助参数。雷达用来进行ICP匹配，以及更新地图。
 
-当观测值为雷达时，处理流程为：
+上述流程对原始ICP-SLAM进行了修改，在里程计估计位姿输出之前，利用帧间匹配对里程计估计位姿进行优化，目前的处理流程为：
 
-![ICP-SLAM流程图-2](ICP算法.assets/ICP-SLAM流程图-2.png)
-
-
+![ICP-SLAM流程图-2](ICP算法之应用.assets/ICP-SLAM流程图-2.png)
 
 
 
@@ -159,6 +156,7 @@ public:
 	bool    skip_quality_calculation;  //在ICP输出中略过（有时）昂贵的“质量”一词评估(默认true)
 
 	uint32_t   corresponding_points_decimation;//点云抽取，忽略某些点的对应关系来近似ICP，加速KD-tree查询数量的抽取(默认5)
+	bool roughMatching;//帧间粗略匹配标志
 };
 
 TConfigParams  options; //用于配置ICP算法的参数
@@ -214,6 +212,7 @@ struct OBS_IMPEXP TMatchingParams
 	size_t decimation_other_map_points; //仅考虑“其他”地图中此数量点中的1个(默认1)
 	size_t offset_other_map_points;  //“其他”地图中第一个点的索引，用于开始检查对应关系(默认0)
 	mrpt::math::TPoint3D angularDistPivotPoint; //用于计算角距离的点
+    bool   roughMatching; //帧间粗略匹配标志
 
 	TMatchingParams() :
 		maxDistForCorrespondence(0.50f),
@@ -222,7 +221,8 @@ struct OBS_IMPEXP TMatchingParams
 		onlyUniqueRobust(false),
 		decimation_other_map_points(1),
 		offset_other_map_points(0),
-		angularDistPivotPoint(0,0,0)
+		angularDistPivotPoint(0,0,0)，
+        roughMatching(false)
 	{}
 };
 
@@ -248,21 +248,17 @@ mrpt::maps::TMatchingExtraResults matchExtraResults;
 
 ## ICP算法的流程
 
-![ICP-SLAM流程图-3](ICP算法.assets/ICP-SLAM流程图-3.png)
+![ICP-SLAM流程图-3](ICP算法之应用.assets/ICP-SLAM流程图-3.png)
 
 **ICP算法主体迭代**
 
-![ICP-SLAM流程图-4](ICP算法.assets/ICP-SLAM流程图-4.png)
-
-
+![ICP-SLAM流程图-4](ICP算法之应用.assets/ICP-SLAM流程图-4.png)
 
 **匹配主体determineMatching2D**
 
 根据当前估计机器人位姿，旋转待匹配点云，依次查找待匹配点云的点在参考点云中的最近点，用KD-tree查找。记录满足阈值条件的对应点和匹配距离，最后选择唯一性筛选或者跳过筛选。
 
-可以通过判断近距离点云个数比例，筛选出角落环境，仅保留近距离的配对点用于匹配，避免远距离的配对点带来匹配的误差。
-
-![ICP-SLAM流程图-5](ICP算法.assets/ICP-SLAM流程图-5.png)
+![ICP-SLAM流程图-5](ICP算法之应用.assets/ICP-SLAM流程图-5.png)
 
 
 
@@ -274,7 +270,7 @@ mrpt::maps::TMatchingExtraResults matchExtraResults;
 
 # LM-ICP算法
 
-无
+LM-ICP算法与经典ICP算法的区别仅在于在内部迭代计算位姿时，采用了最小二乘优化方法，而经典ICP算法采用的是解析解方法。在主流程上没有区别。
 
 
 
