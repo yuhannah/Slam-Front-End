@@ -26,52 +26,681 @@ Karto SLAM的ROS版本，其中采用的稀疏点调整（the Spare Pose Adjustm
 
 代码中所有的配置参数都以封装成类，调用的时候取值`GetValue()`。
 
-### 顶点和边
+### 向量/位姿/矩阵/变换
 
-#### 顶点-Vertex
+#### Vector2
+
+表示二维实空间中的向量`(x，y)`。 实例`double/int`。
+
+- 构造函数
+
+  ```c++
+  Vector2() // 默认构造(0,0)
+  {
+      m_Values[0] = 0;
+      m_Values[1] = 0;
+  }
+  
+  Vector2(T x, T y) // 自定义构造(x,y)
+  {
+      m_Values[0] = x;
+      m_Values[1] = y;
+  }
+  ```
+
+- 成员变量
+
+  ```c++
+  T m_Values[2]; // 一维数组
+  ```
+
+- 成员函数
+
+  ```c++
+  inline void operator += (const Vector2& rOther)
+  {
+      m_Values[0] += rOther.m_Values[0];
+      m_Values[1] += rOther.m_Values[1];
+  }
+  
+  inline void operator -= (const Vector2& rOther)
+  {
+      m_Values[0] -= rOther.m_Values[0];
+      m_Values[1] -= rOther.m_Values[1];
+  }
+  
+  inline const Vector2 operator + (const Vector2& rOther) const
+  {
+      return Vector2(m_Values[0] + rOther.m_Values[0], m_Values[1] + rOther.m_Values[1]);
+  }
+  
+  inline const Vector2 operator - (const Vector2& rOther) const
+  {
+      return Vector2(m_Values[0] - rOther.m_Values[0], m_Values[1] - rOther.m_Values[1]);
+  }
+  ```
+
+  所有的运算按照相同的坐标轴相加减来实现。注意对`Pose2`类的影响。
+
+#### Pose2
+
+表示二维空间的位置`(x，y)`和朝向。其中，表示位置的`Vector2<T>`实例化为`Vector2<kt_double>`。朝向是额外添加的实数。因此需要注意`Pose2`类的计算方法。
+
+- 构造函数
+
+  ```c++
+  Pose2()
+      : m_Heading(0.0) // 默认构造(0.0,0.0,0.0)
+      {
+      }
+  
+  Pose2(const Vector2<kt_double>& rPosition, kt_double heading)
+      : m_Position(rPosition)
+          , m_Heading(heading)
+      {
+      }
+  
+  Pose2(kt_double x, kt_double y, kt_double heading)
+      : m_Position(x, y)
+          , m_Heading(heading)
+      {
+      }
+  
+  Pose2(const Pose3& rPose); // 包含四元数到欧拉角的转换
+  
+  Pose2(const Pose2& rOther)
+      : m_Position(rOther.m_Position)
+          , m_Heading(rOther.m_Heading)
+      {
+      }
+  ```
+
+- 成员变量
+
+  ```c++
+  Vector2<kt_double> m_Position; // 二维空间的位置坐标(x,y)
+  kt_double m_Heading; // 二维空间的位置坐标的朝向
+  ```
+
+- 成员函数
+
+  注意`Vector2`的加减法针对每个坐标系单独计算，此处`Pose2`的加减法也是针对位置和角度单独计算的，没有旋转过程。
+
+  ```c++
+  inline void operator += (const Pose2& rOther)
+  {
+      m_Position += rOther.m_Position;
+      m_Heading = math::NormalizeAngle(m_Heading + rOther.m_Heading);
+  }
+  
+  inline Pose2 operator + (const Pose2& rOther) const
+  {
+      return Pose2(m_Position + rOther.m_Position, math::NormalizeAngle(m_Heading + rOther.m_Heading));
+  }
+  
+  inline Pose2 operator - (const Pose2& rOther) const
+  {
+      return Pose2(m_Position - rOther.m_Position, math::NormalizeAngle(m_Heading - rOther.m_Heading));
+  }
+  ```
+
+#### Matrix3
+
+定义3x3的矩阵类。
+
+- 构造函数
+
+  ```c++
+  Matrix3()
+  {
+      Clear();
+  }
+  
+  inline Matrix3(const Matrix3& rOther)
+  {
+      memcpy(m_Matrix, rOther.m_Matrix, 9*sizeof(kt_double));
+  }
+  ```
+
+- 成员变量
+
+  ```c++
+  kt_double m_Matrix[3][3]; // 二维数组
+  ```
+
+- 成员函数
+
+  ```c++
+  // 3x3矩阵相乘 [3x3 * 3x3 = 3x3]
+  Matrix3 operator * (const Matrix3& rOther) const
+  {
+      Matrix3 product;
+      for (size_t row = 0; row < 3; row++)
+      {
+          for (size_t col = 0; col < 3; col++)
+          {
+              product.m_Matrix[row][col] = 
+                  m_Matrix[row][0]*rOther.m_Matrix[0][col] +
+                  m_Matrix[row][1]*rOther.m_Matrix[1][col] +
+                  m_Matrix[row][2]*rOther.m_Matrix[2][col];
+          }
+      }
+  
+      return product;
+  }
+  
+  // 3x3矩阵与3x1位姿Pose2相乘 - matrix * pose [3x3 * 3x1 = 3x1]
+  inline Pose2 operator * (const Pose2& rPose2) const
+  {
+      Pose2 pose2;
+  
+      pose2.SetX(m_Matrix[0][0] * rPose2.GetX() + m_Matrix[0][1] *
+                 rPose2.GetY() + m_Matrix[0][2] * rPose2.GetHeading());
+      pose2.SetY(m_Matrix[1][0] * rPose2.GetX() + m_Matrix[1][1] *
+                 rPose2.GetY() + m_Matrix[1][2] * rPose2.GetHeading());
+      pose2.SetHeading(m_Matrix[2][0] * rPose2.GetX() + m_Matrix[2][1] *
+                       rPose2.GetY() + m_Matrix[2][2] * rPose2.GetHeading());
+  
+      return pose2;
+  }
+  
+  // 3x3矩阵相加
+  inline void operator += (const Matrix3& rkMatrix)
+  {
+      for (kt_int32u row = 0; row < 3; row++)
+      {
+          for (kt_int32u col = 0; col < 3; col++)
+          {
+              m_Matrix[row][col] += rkMatrix.m_Matrix[row][col];
+          }
+      }
+  }
+  
+  // 获得绕(x,y,z)轴旋转radians角度的旋转矩阵
+  // (1,0,0,theta)->[1 0 0;0 cos(theta) -sin(theta);0 sin(theta) cos(theta)]
+  // (0,1,0,theta)->[cos(theta) 0 sin(theta);0 1 0;-sin(theta) 0 cos(theta)]
+  // (0,0,1,theta)->[cos(theta) -sin(theta) 0;sin(theta) cos(theta) 0;0 0 1]
+  void FromAxisAngle(kt_double x, kt_double y, kt_double z, const kt_double radians)
+  {
+      kt_double cosRadians = cos(radians);
+      kt_double sinRadians = sin(radians);
+      kt_double oneMinusCos = 1.0 - cosRadians;
+  
+      kt_double xx = x * x;
+      kt_double yy = y * y;
+      kt_double zz = z * z;
+  
+      kt_double xyMCos = x * y * oneMinusCos;
+      kt_double xzMCos = x * z * oneMinusCos;
+      kt_double yzMCos = y * z * oneMinusCos;
+  
+      kt_double xSin = x * sinRadians;
+      kt_double ySin = y * sinRadians;
+      kt_double zSin = z * sinRadians;
+  
+      m_Matrix[0][0] = xx * oneMinusCos + cosRadians;
+      m_Matrix[0][1] = xyMCos - zSin;
+      m_Matrix[0][2] = xzMCos + ySin;
+  
+      m_Matrix[1][0] = xyMCos + zSin;
+      m_Matrix[1][1] = yy * oneMinusCos + cosRadians;
+      m_Matrix[1][2] = yzMCos - xSin;
+  
+      m_Matrix[2][0] = xzMCos - ySin;
+      m_Matrix[2][1] = yzMCos + xSin;
+      m_Matrix[2][2] = zz * oneMinusCos + cosRadians;
+  }
+  ```
+
+#### Transform
+
+`Pose2`转换的实现。
+
+- 构造函数
+
+  ```c++
+  // 
+  Transform(const Pose2& rPose)
+  {
+      SetTransform(Pose2(), rPose);
+  }
+  
+  Transform(const Pose2& rPose1, const Pose2& rPose2)
+  {
+      SetTransform(rPose1, rPose2);
+  }
+  ```
+
+- 成员变量
+
+  ```c++
+  Pose2 m_Transform; // 3x1变换位姿
+  Matrix3 m_Rotation;// 3x3旋转矩阵
+  Matrix3 m_InverseRotation;// 3x3旋转矩阵的逆
+  ```
+
+- 成员函数
+
+  ```c++
+  // 将此设置为从第一个位姿到第二个位姿的转换
+  void SetTransform(const Pose2& rPose1, const Pose2& rPose2)
+  {
+      if (rPose1 == rPose2) // 两个位姿相同，则旋转矩阵为单位矩阵，变换位姿为(0,0,0)
+      {
+          m_Rotation.SetToIdentity();
+          m_InverseRotation.SetToIdentity();
+          m_Transform = Pose2();
+          return;
+      }
+  
+      // heading transformation
+      m_Rotation.FromAxisAngle(0, 0, 1, rPose2.GetHeading() - rPose1.GetHeading());
+      m_InverseRotation.FromAxisAngle(0, 0, 1, rPose1.GetHeading() - rPose2.GetHeading());
+  
+      // position transformation
+      Pose2 newPosition;
+      if (rPose1.GetX() != 0.0 || rPose1.GetY() != 0.0)
+      {
+          newPosition = rPose2 - m_Rotation * rPose1;
+      }
+      else
+      {
+          newPosition = rPose2;
+      }
+  
+      m_Transform = Pose2(newPosition.GetPosition(), rPose2.GetHeading() - rPose1.GetHeading());
+  }
+  ```
+
+  `SetTransform()`接口实现了计算从`pose1`到`pose2`的变换位姿`transform`。位姿中位置的变换和朝向的变换是分开计算的。以下按照XY平面进行说明。
+
+  旋转矩阵`m_Rotation `由旋转轴`(0,0,1)`和旋转角度`(heading2-heading1)`产生。将`pose1`中的位置向量逆时针旋转`(heading2-heading1)`角度。但是不改变旋转后的位姿的朝向，即`heading=heading1`。旋转后的位姿表示为`R*pose1`。
+
+  ```c++
+  m_Rotation = [cos(theta) -sin(theta) 0;
+                sin(theta) cos(theta)  0;
+                0          0           1];
+  m_Rotation * pose1 = [cos(theta) -sin(theta) 0;   [pose1.x;
+                        sin(theta) cos(theta)  0; *  pose1.y;
+                        0          0           1]    heading1];
+                     = [pose1.x*cos(theta)-pose1.y*sin(theta);
+                        pose1.x*sin(theta)+pose1.y*cos(theta);
+                        heading1];
+  ```
+
+  由于`Pose2`类的加减运算中，会将角度归一化，在计算变换位姿时是不需要归一化角度的，因此对朝向的计算会单独使用`(heading2-heading1)`角度。注意区分不同。
+
+  ```c++
+  pose2 - m_Rotation * pose1 = 
+      [pose2.x;    [pose1.x*cos(theta)-pose1.y*sin(theta);
+       pose2.y;  -  pose1.x*sin(theta)+pose1.y*cos(theta);
+       heading2]    heading1];
+  = [pose2.x-pose1.x*cos(theta)-pose1.y*sin(theta);
+     pose2.y-pose1.x*sin(theta)+pose1.y*cos(theta);
+     math::NormalizeAngle(heading2-heading1)];
+  m_Transform = 
+      [pose2.x-pose1.x*cos(theta)-pose1.y*sin(theta);
+       pose2.y-pose1.x*sin(theta)+pose1.y*cos(theta);
+       heading2-heading1];
+  ```
+
+  变换位姿`m_Transform`的位置分量最终由`pose2`与旋转后的`R*pose1`之差的位置分量决定，朝向分量最终由`pose2`和`pose1`的朝向分量之差决定。
+
+  ![transform-1](Karto SLAM代码解析.assets/transform-1.png)
+
+  ```c++
+  // 将输入位姿pose1按照变换位姿transform变换后得到变换后的位姿
+  inline Pose2 TransformPose(const Pose2& rSourcePose)
+  {
+      Pose2 newPosition = m_Transform + m_Rotation * rSourcePose;
+      kt_double angle = math::NormalizeAngle(rSourcePose.GetHeading() + m_Transform.GetHeading());
+  
+      return Pose2(newPosition.GetPosition(), angle);
+  }
+  
+  // 将输入位姿pose2按照变换位姿transform逆变换后得到变换前的位姿
+  inline Pose2 InverseTransformPose(const Pose2& rSourcePose)
+  {
+      Pose2 newPosition = m_InverseRotation * (rSourcePose - m_Transform);
+      kt_double angle = math::NormalizeAngle(rSourcePose.GetHeading() - m_Transform.GetHeading());
+  
+      // components of transform
+      return Pose2(newPosition.GetPosition(), angle);
+  }
+  ```
+
+### 顶点/边
+
+#### Vertex
 
 Karto SLAM中，顶点类模板`Vertex<T>`的实例是`Vertex<LocalizedRangeScan>`，指的是包含机器位姿等信息的一帧激光数据。
 
-```c++
-std::vector<Edge<T>*> m_Edges;
-```
+- 构造和析构函数：
 
-该顶点将会添加与该顶点相连的边`edge`的信息。从而根据相连的边的信息得到相邻的其他顶点的信息。
+  ```c++
+  Vertex(T* pObject)
+      : m_pObject(pObject)
+  {
+  }
+  
+  virtual ~Vertex()
+  {
+  }
+  ```
 
-#### 边-Edge
+- 成员变量：
 
-边指的是（`sensorPose`还是`robotPose`？）之间的约束关系。
+  ```c++
+  T* m_pObject; // 指激光数据指针LocalizedRangeScan*
+  std::vector<Edge<T>*> m_Edges; // 该顶点的边的列表
+  ```
 
-```c++
-Vertex<T>* m_pSource; // 边的起点顶点
-Vertex<T>* m_pTarget; // 边的终点顶点
-EdgeLabel* m_pLabel; // 边的标签信息
-```
+- 成员函数
 
-一条边记录的这条边连接的两个顶点的所有信息。
+  ```c++
+  inline const std::vector<Edge<T>*>& GetEdges() const // 获取该顶点的边
+  inline T* GetObject() const // 获取该顶点的类型
+  std::vector<Vertex<T>*> GetAdjacentVertices() const // 获取该顶点的边的另一个顶点的列表
+  inline void AddEdge(Edge<T>* pEdge) // 添加边到该顶点的边的列表
+  ```
+
+  ![vertex-1](Karto SLAM代码解析.assets/vertex-1.png)
+
+该顶点（激光数据）将会添加与该顶点（激光数据）相连的边`edge`的信息。从而根据相连的边的信息得到相邻的其他顶点（激光数据）的信息。
+
+#### Edge
+
+Karto SLAM中，边类模板`Edge<T>`的实例是`Edge<LocalizedRangeScan>`，指的是包含机器位姿等信息的两帧激光数据、激光数据的传感器位姿以及两帧之间的传感器位姿差和协方差矩阵。
+
+- 构造和析构函数：
+
+  ```c++
+  Edge(Vertex<T>* pSource, Vertex<T>* pTarget)
+      : m_pSource(pSource) // 边的起点顶点
+          , m_pTarget(pTarget) // 边的终点顶点
+          , m_pLabel(NULL) // 边的起点顶点和终点顶点的传感器位姿以及位姿差和协方差矩阵等信息
+      {
+          m_pSource->AddEdge(this); // 将边添加到起点顶点的边的列表中
+          m_pTarget->AddEdge(this); // 将边添加到终点顶点的边的列表中
+      }
+  
+  virtual ~Edge()
+  {
+      m_pSource = NULL;
+      m_pTarget = NULL;
+  
+      if (m_pLabel != NULL)
+      {
+          delete m_pLabel;
+          m_pLabel = NULL;
+      }
+  }
+  ```
+
+  **边在构造时需要两个顶点，并将构造的边分别添加到两个顶点的边的列表中。**
+
+- 成员变量：
+
+  ```c++
+  Vertex<T>* m_pSource; // 边的起点顶点（激光数据）
+  Vertex<T>* m_pTarget; // 边的终点顶点（激光数据）
+  EdgeLabel* m_pLabel; // 边的标签信息（激光数据的传感器位姿和位姿差，协方差矩阵）
+  ```
+
+- 成员函数
+
+  ```c++
+  inline Vertex<T>* GetSource() const // 获取边的起点顶点
+  inline Vertex<T>* GetTarget() const // 获取边的终点顶点
+  inline EdgeLabel* GetLabel() // 获取边的标签信息
+  inline void SetLabel(EdgeLabel* pLabel) // 设置边的标签信息
+  ```
+
+边指的是传感器位姿之间的相互关系。一条边记录的这条边连接的两个顶点的所有信息。
+
+#### LinkInfo
+
+Karto SLAM中，`LinkInfo`指的是边的两个顶点的位姿、位姿差和协方差矩阵。
+
+- 构造和析构函数：
+
+  ```c++
+  LinkInfo(const Pose2& rPose1, const Pose2& rPose2, const Matrix3& rCovariance)
+  {
+      Update(rPose1, rPose2, rCovariance);
+  }
+  
+  virtual ~LinkInfo()
+  {
+  }
+  ```
+
+  **`LinkInfo`在构造时需要边的两个顶点的位姿（Karto SLAM中是传感器位姿），和协方差矩阵，并在构造时更新位姿差。**
+
+- 成员变量：
+
+  ```c++
+  Pose2 m_Pose1; // 边的起点顶点的位姿（传感器位姿）
+  Pose2 m_Pose2; // 边的终点顶点的位姿（传感器位姿）
+  Pose2 m_PoseDifference; // 边的两个顶点的位姿差
+  Matrix3 m_Covariance; // 边的两个顶点之间的协方差矩阵
+  ```
+
+- 成员函数
+
+  ```c++
+  void Update(const Pose2& rPose1, const Pose2& rPose2, const Matrix3& rCovariance) // 根据输入位姿和协方差，更新LinkInfo的位姿差和协方差矩阵信息
+  {
+      m_Pose1 = rPose1;
+      m_Pose2 = rPose2;
+  
+      // transform second pose into the coordinate system of the first pose
+      Transform transform(rPose1, Pose2());
+      m_PoseDifference = transform.TransformPose(rPose2);
+  
+      // transform covariance into reference of first pose
+      Matrix3 rotationMatrix;
+      rotationMatrix.FromAxisAngle(0, 0, 1, -rPose1.GetHeading());
+  
+      m_Covariance = 
+          rotationMatrix * rCovariance * rotationMatrix.Transpose();
+  }
+  ```
+
+  将`pose2`转换到`pose1`的坐标系下，计算`pose2`到`pose1`的位姿的变化量，以及相对协方差矩阵。
+
+  ```c++
+  inline const Pose2& GetPose1() // 获取起点顶点的位姿（传感器位姿）
+  inline const Pose2& GetPose2() // 获取终点顶点的位姿（传感器位姿）
+  inline const Pose2& GetPoseDifference() // 获取位姿差
+  inline const Matrix3& GetCovariance() // 获取以起点顶点的位姿为参考坐标系的协方差矩阵
+  ```
 
 ### 激光数据
 
+#### LocalizedRangeScan
+
 类`LocalizedRangeScan`创建激光点云，包含激光点云的所有距离值，以及多个位姿。
 
-```c++
-Pose2 m_OdometricPose; // 里程计表示的机器位姿
-Pose2 m_CorrectedPose; // 被图优化后的机器位姿（若没有优化，数值同里程计位姿）
+- 构造和析构函数
 
-Pose2 m_BarycenterPose; // 所有激光测距的质心表示的机器位姿
+  ```c++
+  LocalizedRangeScan(const Name& rSensorName, const RangeReadingsVector& rReadings)
+      : LaserRangeScan(rSensorName, rReadings)
+          , m_IsDirty(true)
+      {
+      }
+  
+  virtual ~LocalizedRangeScan()
+  {
+  }
+  ```
 
-PointVectorDouble m_PointReadings; // 过滤后的激光点云的终端的世界坐标集
-PointVectorDouble m_UnfilteredPointReadings; // 未过滤的激光点云的终端的世界坐标集
-BoundingBox2 m_BoundingBox; // 过滤后的激光点云的终端的世界坐标集的最大范围框
+- 成员变量
 
-kt_bool m_IsDirty; // 更新上述信息的标识位
-```
+  ```c++
+  Pose2 m_OdometricPose; // 里程计表示的机器位姿
+  Pose2 m_CorrectedPose; // 图优化后的机器位姿（若没有优化，数值同里程计位姿）
+  Pose2 m_BarycenterPose; // 所有激光测距值的质心表示的机器位姿
+  
+  PointVectorDouble m_PointReadings; // 过滤后的激光点云的终端的世界坐标集
+  PointVectorDouble m_UnfilteredPointReadings; // 未过滤的激光点云的终端的世界坐标集
+  BoundingBox2 m_BoundingBox; // 过滤后的激光点云的终端的世界坐标集的最大范围框
+  
+  kt_bool m_IsDirty; // 更新上述信息的标识位
+  ```
 
-这里说的里程计位姿、校正后的位姿等都是指机器位姿，而`scanPose`或者`sensorPose`指的是传感器位姿，两者之间由传感器相对机器的偏移位姿`offsetPose`关联起来。在作坐标转换时，经常要考虑当前位姿是说传感器位姿还是机器位姿，并做相应的偏移处理。
+- 成员函数
+
+  ```c++
+  // 根据输入传感器位姿和传感器相对于机器的位姿，计算当前机器位姿
+  void SetSensorPose(const Pose2& rScanPose)
+  {
+      Pose2 deviceOffsetPose2 = GetLaserRangeFinder()->GetOffsetPose();
+      kt_double offsetLength = deviceOffsetPose2.GetPosition().Length();
+      kt_double offsetHeading = deviceOffsetPose2.GetHeading();
+      kt_double angleoffset = atan2(deviceOffsetPose2.GetY(), deviceOffsetPose2.GetX());
+      kt_double correctedHeading = math::NormalizeAngle(rScanPose.GetHeading());
+      Pose2 worldSensorOffset = 
+          Pose2(offsetLength * cos(correctedHeading + angleoffset - offsetHeading),
+                offsetLength * sin(correctedHeading + angleoffset - offsetHeading),
+                offsetHeading);
+  
+      m_CorrectedPose = rScanPose - worldSensorOffset;
+  
+      Update();
+  }
+  ```
+
+  `SetSensorPose()`根据传感器相对于机器位姿的位姿，获取当前传感器位姿处的机器位姿。
+
+  ![scan-1](Karto SLAM代码解析.assets/scan-1.png)
+
+  已知传感器相对于机器的位姿，比如，传感器朝向`sHeading=90`相对于机器朝向`rHeading=0`为逆时针90度，传感器位置分量相对于机器位置分量`(0,0)`为`(-1,-1)`。当新的传感器位姿为`(3,1,45度)`时，对应的机器位姿为`(3+1.414,1,-45度)`。推导如下：
+
+  ```c++
+  deviceOffsetPose2 = [sPose.x; sPose.y; sHeading] = [-1; -1; 90deg];
+  offsetLength = L = 1.414; // 相对位移
+  offsetHeading = sHeading = 90deg; // 相对朝向角度
+  angleoffset = atan2(deviceOffsetPose2.GetY(), deviceOffsetPose2.GetX())
+      = atan2(sPose.y, sPose.x) = -135deg; // 相对位移的朝向
+  
+  correctedHeading = sHeading' = 45deg; // 新的传感器朝向
+  correctedHeading - offsetHeading = sHeading' - offsetHeading 
+      = 45deg - 90deg = -45deg// 新的机器朝向
+  correctedHeading - offsetHeading + angleoffset = -45deg + (-135deg)
+      = -180deg // 新的相对位移的朝向
+  worldSensorOffset = Pose2(
+      offsetLength * cos(correctedHeading - offsetHeading + angleoffset),
+      offsetLength * sin(correctedHeading - offsetHeading + angleoffset),
+      offsetHeading)
+      = Pose2(
+      L * cos(45deg - 90deg + (-135deg)),
+      L * sin(45deg - 90deg + (-135deg)),
+      90deg) = Pose2(-L, 0, 90deg); // 新的传感器相对于机器的位移
+  m_CorrectedPose = rPose' = sPose' - worldSensorOffset 
+  	= [3; 1; 45deg] - [-1.414; 0; 90deg] = [3+1.414; 1; -45deg];
+  ```
+
+  --
+
+  ```c++
+  // 获取当前机器位姿下的传感器位姿
+  inline Pose2 GetSensorPose() const
+  {
+      return GetSensorAt(m_CorrectedPose);
+  }
+  // 根据输入的机器位姿和传感器相对于机器的位姿，计算当前传感器位姿
+  inline Pose2 GetSensorAt(const Pose2& rPose) const
+  {
+      // transform(rPose)指(0,0,0)相对于rPose的变换位姿
+      // TransformPose(offsetPose)传感器相对于机器的位姿经过上述变换后得到的传感器位姿（将机器位姿为(0,0,0)处的传感器位姿变换到机器位姿为rPose处的传感器位姿）
+      return Transform(rPose).TransformPose(GetLaserRangeFinder()->GetOffsetPose());
+  }
+  ```
+
+  `GetSensorPose()`根据传感器相对于机器位姿的位姿，获取当前机器位姿处的传感器位姿。
+
+这里说的里程计位姿、校正后的位姿等都是指机器位姿，而`scanPose`或者`sensorPose`指的是传感器位姿，两者之间由传感器相对机器的偏移位姿`offsetPose`关联起来。在做坐标转换时，经常要考虑当前位姿是说传感器位姿还是机器位姿，并做相应的偏移处理。
 
 ### 查表
 
-`GridIndexLookup`类创建一个按照角度分辨率分布的激光点云查找表。该查找表的第一维按照角度分辨率`angleResolution`和角度偏移值`angleOffset`划分`nAngles`个查找表。
+#### LookupArray
+
+`LookupArray`类创建用于查表的数组指针。
+
+- 构造和析构函数
+
+  ```c++
+  LookupArray()
+      : m_pArray(NULL)
+          , m_Capacity(0)
+          , m_Size(0)
+      {
+      }
+  
+  virtual ~LookupArray()
+  {
+      assert(m_pArray != NULL);
+  
+      delete[] m_pArray;
+      m_pArray = NULL;
+  }
+  ```
+
+- 成员函数
+
+  ```c++
+  kt_int32s* m_pArray; // 数组指针
+  kt_int32u m_Capacity; // 数组容量
+  kt_int32u m_Size; // 数组大小
+  ```
+
+#### GridIndexLookup
+
+`GridIndexLookup`类创建一个按照角度分辨率分布的激光点云查找表。
+
+- 构造和析构函数
+
+  ```c++
+  GridIndexLookup(Grid<T>* pGrid)
+      : m_pGrid(pGrid) // 用局部相关网格地图初始化，用于提供网格地图的尺寸信息
+          , m_Capacity(0)
+          , m_Size(0)
+          , m_ppLookupArray(NULL)
+      {
+      }
+  
+  virtual ~GridIndexLookup()
+  {
+      DestroyArrays();
+  }
+  ```
+
+- 成员变量
+
+  ```c++
+  Grid<T>* m_pGrid; // 指向局部相关网格地图的地图指针
+  kt_int32u m_Capacity; // 二维查找表的第一维容量
+  kt_int32u m_Size; // 二维查找表的第一维大小
+  LookupArray **m_ppLookupArray; // 二维指针，用于给相关地图的每个栅格分配一个查找表
+  std::vector<kt_double> m_Angles; // 二维查找表的第一维角度值，由角度偏移总量和角度分辨率共同决定
+  ```
+
+- 成员函数
+
+  ```c++
+  // 对第angleIndex个角度偏量angle，将rLocalPoints中的一帧局部激光数据旋转angle角度，将旋转后的点云坐标加上当前局部相关网格地图的偏移量，再根据局部网格地图的尺寸，将世界坐标系下的点云坐标转换成地图的index，并记录在对应的查找表中
+  void ComputeOffsets(kt_int32u angleIndex, kt_double angle, const Pose2Vector& rLocalPoints, LocalizedRangeScan* pScan)
+  // 对给定的角度偏移量，角度分辨率，中心角度值，计算需要细化的角度数量，并将输入一帧激光数据依次旋转不同的角度，计算旋转后的每个点云对应的局部网格地图序号，更新在查找表中
+  void ComputeOffsets(LocalizedRangeScan* pScan,
+                          kt_double angleCenter,
+                          kt_double angleOffset,
+                          kt_double angleResolution)    
+  ```
+
+
+该查找表的第一维按照角度分辨率`angleResolution`和角度偏移值`angleOffset`划分`nAngles`个查找表。
 
 ```c++
 kt_int32u nAngles = static_cast<kt_int32u>(math::Round(angleOffset * 2.0 / angleResolution) + 1);
@@ -82,7 +711,7 @@ kt_int32u nAngles = static_cast<kt_int32u>(math::Round(angleOffset * 2.0 / angle
 | startAngle  | index11  | index12  | $\cdots$ | index1N  |
 |  $\vdots$   | $\vdots$ | $\vdots$ | $\cdots$ | $\vdots$ |
 | angleCenter | indexP1  |  indeP2  | $\cdots$ | indexPN  |
-|  $\vdots$   |  \vdots  | $\vdots$ | $\cdots$ | $\vdots$ |
+|  $\vdots$   | $\vdots$ | $\vdots$ | $\cdots$ | $\vdots$ |
 |  endAngle   | indexQ1  | indexQ2  | $\cdots$ | indexQN  |
 
 根据角度中心值`angleCenter`和角度偏移值`angleOffset`得到起始角度`startAngle`，按照`nAngles`个离散角度增量进行循环，最后的终止角度表示为`endAngle`：
@@ -103,11 +732,64 @@ for (kt_int32u angleIndex = 0; angleIndex < nAngles; angleIndex++)
 
 ### 地图
 
-#### Grid类和CoordinateConverter类
+#### CoordinateConverter
+
+`CoordinateConverter`类用于在世界坐标和网格坐标之间转换坐标，比如在世界坐标中1米=在网格坐标中1像素。默认值比例为20，即1像素=0.05米。并且只记录以当前传感器坐标为中心的一定感兴趣范围ROI内的地图的信息，称为局部地图，局部地图的偏移量用`offset`表示。
+
+- 构造函数
+
+  ```c++
+  CoordinateConverter()
+      : m_Scale(20.0)
+      {
+      }
+  ```
+
+- 成员变量
+
+  ```c++
+  Size2<kt_int32s> m_Size; // 地图的尺寸height*width
+  kt_double m_Scale; // 世界坐标与网格坐标的比例，1米=m_Scale像素，m_Scale=1/resolution
+  Vector2<kt_double> m_Offset; // 当前地图的偏移量，地图左下角(0,0)坐标在世界坐标下的起点位置
+  ```
+
+- 成员函数
+
+  ```c++
+  // 将世界坐标转换成网格坐标
+  inline Vector2<kt_int32s> WorldToGrid(const Vector2<kt_double>& rWorld, kt_bool flipY = false) const
+  // 将网格坐标转换成世界坐标
+  inline Vector2<kt_double> GridToWorld(const Vector2<kt_int32s>& rGrid, kt_bool flipY = false) const
+  ```
+
+下图显示了地图偏移量和局部地图尺寸在世界坐标系下的体现。黑色原点是当前传感器位姿，红色矩形为以当前传感器为中心的感兴趣区域ROI，局部地图建立在这个区域基础上。世界坐标系零点为`(0,0)`，局部地图起点在世界坐标系下的坐标为`(offset.x,offset.y)`，在局部地图中，任意一个点云所在的地图坐标转换后表示为`(grid.x,grid.y)`。
+
+![grid-1](Karto SLAM代码解析.assets/grid-1.png)
+
+#### Grid
 
 `Grid`类创建地图，根据输入`width`和`height`以及分辨率`resolution`创建一个局部网格地图。其中地图的`width`值经过了8bit对齐后是`m_widthStep`。
 
 初始化地图网格的数据都是0。起点在左下角，网格坐标为(0,0)。
+
+- 构造和析构函数
+
+  ```c++
+  Grid(kt_int32s width, kt_int32s height)
+      : m_pData(NULL)
+          , m_pCoordinateConverter(NULL)
+      {
+          Resize(width, height);
+      }
+  
+  virtual ~Grid()
+  {
+      delete [] m_pData;
+      delete m_pCoordinateConverter;
+  }
+  ```
+
+- 成员变量
 
 ```c++
 kt_int32s m_Width;       // width of grid
@@ -115,22 +797,29 @@ kt_int32s m_Height;      // height of grid
 kt_int32s m_WidthStep;   // 8 bit aligned width of grid
 T* m_pData;              // grid data
 
-// coordinate converter to convert between world coordinates and grid coordinates
-CoordinateConverter* m_pCoordinateConverter;
+CoordinateConverter* m_pCoordinateConverter; // 世界坐标和网格坐标的转换
 ```
 
-![grid-1](Karto SLAM代码解析.assets/grid-1.png)
+- 成员函数
 
-`Grid`类只记录宽、高和网格数据。另外有一个专门用于转换世界坐标系和地图坐标系的类`CoordinateConverter`用于记录该地图与世界坐标系的转换参数，如缩放系数`m_scale`(即分辨率倒数`1.0/resolution`)、偏移`m_Offset`，等。
+  ```c++
+  // 判断坐标是否有效，在width和height范围内
+  inline kt_bool IsValidGridIndex(const Vector2<kt_int32s>& rGrid) const
+  // 将给定网格坐标转换成index
+  virtual kt_int32s GridIndex(const Vector2<kt_int32s>& rGrid, kt_bool boundaryCheck = true) const
+  // 将给定index转换成网格坐标
+  Vector2<kt_int32s> IndexToGrid(kt_int32s index) const
+  // 将给定世界坐标转换成网格坐标
+  inline Vector2<kt_int32s> WorldToGrid(const Vector2<kt_double>& rWorld, kt_bool flipY = false) const
+  // 将给定网格坐标转换成世界坐标
+  inline Vector2<kt_double> GridToWorld(const Vector2<kt_int32s>& rGrid, kt_bool flipY = false) const
+  ```
 
-```c++
-Size2<kt_int32s> m_Size; // width * height
-kt_double m_Scale;       // 1.0 / resolution
+`Grid`类只记录宽、高和网格数据。`CoordinateConverter`类用于转换世界坐标系和地图坐标系，并记录该地图与世界坐标系的转换参数，如缩放系数`m_scale`(即分辨率倒数`1.0/resolution`)、偏移`m_Offset`，等。
 
-Vector2<kt_double> m_Offset; // 局部地图的偏移量
-```
+![grid-2](Karto SLAM代码解析.assets/grid-2.png)
 
-上述两个类相互依赖，包含了世界坐标转换地图序号Index、地图序号Index转换世界坐标等各类坐标转换接口。
+上述两个类相互依赖，包含了世界坐标转换地图序号`Index`、地图序号`Index`转换世界坐标等各类坐标转换接口。
 
 此外，`Grid`类有一个光束轨迹累积函数，方法同`Bresenham`算法一样，用于将光束覆盖的网格的数值增加一个常量。
 
@@ -203,28 +892,46 @@ void TraceLine(kt_int32s x0, kt_int32s y0, kt_int32s x1, kt_int32s y1, Functor* 
 }
 ```
 
-#### CorrelationGrid类
+#### CorrelationGrid
 
 该`CorrelationGrid`类用于扫描匹配前建立局部相关地图。与`Grid`类相比，`CorrelationGrid`类对原始地图进行了边缘扩充`2×borderSize`，便于根据平滑偏差`m_SmearDeviation`使用核函数`m_pKernel`进行平滑。
 
-```c++
-kt_double m_SmearDeviation; // 平滑偏差
+- 构造和析构函数
 
-// Size of one side of the kernel
-kt_int32s m_KernelSize; // 核边长
+  ```c++
+  CorrelationGrid(kt_int32u width, kt_int32u height, kt_int32u borderSize,
+                  kt_double resolution, kt_double smearDeviation)
+      : Grid<kt_int8u>(width + borderSize * 2, height + borderSize * 2)
+          , m_SmearDeviation(smearDeviation)
+          , m_pKernel(NULL)
+      {
+          GetCoordinateConverter()->SetScale(1.0 / resolution);
+  
+          // setup region of interest
+          m_Roi = Rectangle2<kt_int32s>(borderSize, borderSize, width, height);
+  
+          // calculate kernel
+          CalculateKernel();
+      }
+  
+  virtual ~CorrelationGrid()
+  {
+      delete [] m_pKernel;
+  }
+  ```
 
-// Cached kernel for smearing
-kt_int8u* m_pKernel; // 核数组
+- 成员变量
 
-// region of interest
-Rectangle2<kt_int32s> m_Roi;
-```
+  ```c++
+  kt_double m_SmearDeviation; // 平滑偏差
+  kt_int32s m_KernelSize; // 核边长
+  kt_int8u* m_pKernel; // 核数组
+  Rectangle2<kt_int32s> m_Roi; // 感兴趣区域
+  ```
 
 说明一下感兴趣区域`ROI`。该区域实际代表的是原始网格地图的范围，在此基础上，边缘扩充了一半核窗口`halfKernelSize+1`大小，以防对边缘网格进行平滑时数组溢出。扩充后的地图如下图所示。中间区域就是感兴趣区域。
 
-![grid-2](Karto SLAM代码解析.assets/grid-2.png)
-
-
+![grid-3](Karto SLAM代码解析.assets/grid-3.png)
 
 说明一下核。在`CorrelationGrid`类中，允许对网格地图进行平滑，平滑参数为`m_SmearDeviation`，由平滑参数和分辨率一起得到核窗口的边长`m_KernelSize`：
 
@@ -270,7 +977,7 @@ for (kt_int32s i = -halfKernel; i <= halfKernel; i++)
 
 令平滑参数`smearDeviation = 0.03`，分辨率`resolution = 0.05`。则核边长为`kernelSize = 2×(int)(2×0.03/0.05)+1 = 3`。一半核边长为`halfKernel = 1`。剩余的核数值见图：
 
-![grid-3](Karto SLAM代码解析.assets/grid-3.png)
+![grid-4](Karto SLAM代码解析.assets/grid-4.png)
 
 将核应用于地图平滑，是指如果某个给定网格点为障碍物，则在以该点为中心的核窗口中，一一比较窗口中的格子的地图值和核数值，如果核数值大于地图值，则将核数值复制给地图的对应格子，达到平滑的效果。
 
@@ -312,34 +1019,85 @@ inline void SmearPoint(const Vector2<kt_int32s>& rGridPoint)
 }
 ```
 
+#### OccupancyGrid
 
+`OccupancyGrid`类用于追迹光束，统计光束通过某个网格的次数或者光束终端落在某个网格的次数，根据两者的比例更新网格地图的障碍物关系。
 
-#### OccupancyGrid类
+- 构造和析构函数
 
-该`OccupancyGrid`类用于追迹光束，统计光束通过某个网格的次数或者光束终端落在某个网格的次数，根据两者的比例更新网格地图的障碍物关系。
+  ```c++
+  OccupancyGrid(kt_int32s width, kt_int32s height, const Vector2<kt_double>& rOffset, kt_double resolution)
+      : Grid<kt_int8u>(width, height)
+          , m_pCellPassCnt(Grid<kt_int32u>::CreateGrid(0, 0, resolution))
+          , m_pCellHitsCnt(Grid<kt_int32u>::CreateGrid(0, 0, resolution))
+          , m_pCellUpdater(NULL)
+      {
+          m_pCellUpdater = new CellUpdater(this);
+  
+          if (karto::math::DoubleEqual(resolution, 0.0))
+          {
+              throw Exception("Resolution cannot be 0");
+          }
+  
+          m_pMinPassThrough = new Parameter<kt_int32u>("MinPassThrough", 2);
+          m_pOccupancyThreshold = new Parameter<kt_double>("OccupancyThreshold", 0.1);
+  
+          GetCoordinateConverter()->SetScale(1.0 / resolution);
+          GetCoordinateConverter()->SetOffset(rOffset);
+      }
+  
+  virtual ~OccupancyGrid()
+  {
+      delete m_pCellUpdater;
+  
+      delete m_pCellPassCnt;
+      delete m_pCellHitsCnt;
+  
+      delete m_pMinPassThrough;
+      delete m_pOccupancyThreshold;
+  }
+  ```
 
-```c++
-//Counters of number of times a beam passed through a cell
-Grid<kt_int32u>* m_pCellPassCnt; // 用另一个Grid类来统计光束通过网格的次数
+- 成员变量
 
-//Counters of number of times a beam ended at a cell
-Grid<kt_int32u>* m_pCellHitsCnt; // 用另一个Grid类来统计光束终端落于网格的次数
+  ```c++
+  //Counters of number of times a beam passed through a cell
+  Grid<kt_int32u>* m_pCellPassCnt; // 用另一个Grid类来统计光束通过网格的次数
+  
+  //Counters of number of times a beam ended at a cell
+  Grid<kt_int32u>* m_pCellHitsCnt; // 用另一个Grid类来统计光束终端落于网格的次数
+  
+  CellUpdater* m_pCellUpdater; // 用于更新该地图的更新器
+  
+  ////////////////////////////////////////////////////////////
+  // NOTE: These two values are dependent on the resolution.  If the resolution is too small, then not many beams will hit the cell!
+  
+  // Number of beams that must pass through a cell before it will be considered to be occupied or unoccupied.  This prevents stray beams from messing up the map. 直到一定数量的光束通过了该网格，再考虑该网格是障碍物还是空闲区域，防止杂散光涂抹地图
+  Parameter<kt_int32u>* m_pMinPassThrough;
+  
+  // Minimum ratio of beams hitting cell to beams passing through cell for cell to be marked as occupied
+  Parameter<kt_double>* m_pOccupancyThreshold;
+  ```
 
-CellUpdater* m_pCellUpdater; // ？？
+- 成员函数
 
-////////////////////////////////////////////////////////////
-// NOTE: These two values are dependent on the resolution.  If the resolution is too small, then not many beams will hit the cell!
-
-// Number of beams that must pass through a cell before it will be considered to be occupied or unoccupied.  This prevents stray beams from messing up the map. 直到一定数量的光束通过了该网格，再考虑该网格是障碍物还是空闲区域，防止杂散光涂抹地图
-Parameter<kt_int32u>* m_pMinPassThrough;
-
-// Minimum ratio of beams hitting cell to beams passing through cell for cell to be marked as occupied
-Parameter<kt_double>* m_pOccupancyThreshold;
-```
+  ```c++
+  // 重置网格地图，清除数据
+  virtual void Resize(kt_int32s width, kt_int32s height)
+  // 更新网格地图
+  virtual void Update()
+  // 根据m_pCellPassCnt和m_pCellHitsCnt更新单个网格
+  virtual void UpdateCell(kt_int8u* pCell, kt_int32u cellPassCnt, kt_int32u cellHitCnt)
+  // 光束追迹
+  virtual kt_bool RayTrace(const Vector2<kt_double>& rWorldFrom,
+                               const Vector2<kt_double>& rWorldTo,
+                               kt_bool isEndPointValid,
+                               kt_bool doUpdate = false)
+  ```
 
 通过`RayTrace()`函数，并内部调用直线转换为网格的`Bresenham`算法，将光束通过的网格`m_pCellPassCnt`的数值+1，对有效光束终端，同时将光束终端所在的网格`m_pCellPassCnt`和`m_pCellHitsCnt`的数值+1。如此，将世界坐标系下光束的分布转换到两个网格地图中网格的访问次数中，进而用于网格地图的更新。
 
-![grid-4](Karto SLAM代码解析.assets/grid-4.png)
+![grid-5](Karto SLAM代码解析.assets/grid-5.png)
 
 继上述光束追迹之后，根据光束通过网格`m_pCellPassCnt`和光束终端网格`m_pCellHitsCnt`的数据，遍历整个网格地图，对每一个网格，首先判断该网格的光束通过次数是否达到阈值，避免杂散光对地图的涂抹。满足上述条件后，再比较光束终端次数和光束通过次数的比例，满足一定阈值则认为该网格是障碍物，反之，该网格是空闲区域。
 
@@ -525,7 +1283,7 @@ Parameter<kt_double>* m_pScanBufferMaximumScanDistance;
 
 ### 回环检测及优化
 
-#### 闭环检测-TryCloseLoop()
+#### TryCloseLoop()
 
 重要的闭环检测入口，反复调用`FindPossibleLoopClosure()`寻找备选激光数据链，调用`MatchScan()`进行粗匹配，根据粗匹配结果决定是否进行精匹配，根据精匹配结果决定是否进行优化`LinkChainToScan()`和`CorrectPoses()`。
 
@@ -544,7 +1302,7 @@ const Name& rSensorName // 传感器名字
 loopClosed = true or false // 是否闭环优化
 ```
 
-#### 闭环检测-FindPossibleLoopClosure()
+#### FindPossibleLoopClosure()
 
 该接口实现了寻找可能闭环的激光数据链功能。首先找到输入激光数据帧的一定位移范围内的所有相邻激光数据帧。在后续的寻找可能闭环的激光数据链的过程中，要剔除相邻激光数据帧。从`rStartNum`开始遍历所有的过去的激光数据帧，如果位移在一定范围内，并且不属于相邻帧，则将该帧添加到备选链中。如果属于相邻帧，则清空当前备选链，继续遍历下一帧。如果位移超过一定的范围，并且当前备选链大小达到阈值，则返回当前备选链，以及对应的遍历到当前帧的序号，便于下一次寻找可能闭环时继续遍历。如果位移超过一定的范围，且备选链大小小于阈值，则清空备选链，继续遍历下一帧。
 
@@ -605,13 +1363,13 @@ LocalizedRangeScanVector nearLinkedScans // 范围内的所有激光点云的集
 
 最终得到了由满足距离条件的所有激光点云形成的集合。
 
-#### SPA优化-CorrectPoses()
+#### CorrectPoses()
 
 重要的优化入口，调用`Compute()`对已经添加的节点和约束进行SPA优化，调用`GetCorrections()`返回优化后的结果，并将优化后的位姿赋值`SetSensorPose(pose)`给对应的激光点云帧`GetScan(ID)`上，替换原始位姿。
 
 ![SPA优化-2](Karto SLAM代码解析.assets/SPA优化-2.png)
 
-#### SPA优化-Compute()
+#### Compute()
 
 优化求解的过程调用了`sparse_bundle_adjustment`库的`doSPA()`接口。获取优化后的结果调用了`getNodes()`接口，转换成`vector<pair<ID, pose>>`形式的输出结果。
 
