@@ -791,14 +791,14 @@ for (kt_int32u angleIndex = 0; angleIndex < nAngles; angleIndex++)
 
 - 成员变量
 
-```c++
-kt_int32s m_Width;       // width of grid
-kt_int32s m_Height;      // height of grid
-kt_int32s m_WidthStep;   // 8 bit aligned width of grid
-T* m_pData;              // grid data
-
-CoordinateConverter* m_pCoordinateConverter; // 世界坐标和网格坐标的转换
-```
+  ```c++
+  kt_int32s m_Width;       // width of grid
+  kt_int32s m_Height;      // height of grid
+  kt_int32s m_WidthStep;   // 8 bit aligned width of grid
+  T* m_pData;              // grid data
+  
+  CoordinateConverter* m_pCoordinateConverter; // 世界坐标和网格坐标的转换
+  ```
 
 - 成员函数
 
@@ -820,6 +820,17 @@ CoordinateConverter* m_pCoordinateConverter; // 世界坐标和网格坐标的�
 ![grid-2](Karto SLAM代码解析.assets/grid-2.png)
 
 上述两个类相互依赖，包含了世界坐标转换地图序号`Index`、地图序号`Index`转换世界坐标等各类坐标转换接口。
+
+地图的状态分为占据、空闲和未知：
+
+```c++
+typedef enum
+{
+    GridStates_Unknown = 0,
+    GridStates_Occupied = 100,
+    GridStates_Free = 255
+} GridStates;
+```
 
 此外，`Grid`类有一个光束轨迹累积函数，方法同`Bresenham`算法一样，用于将光束覆盖的网格的数值增加一个常量。
 
@@ -929,7 +940,13 @@ void TraceLine(kt_int32s x0, kt_int32s y0, kt_int32s x1, kt_int32s y1, Functor* 
   Rectangle2<kt_int32s> m_Roi; // 感兴趣区域
   ```
 
-说明一下感兴趣区域`ROI`。该区域实际代表的是原始网格地图的范围，在此基础上，边缘扩充了一半核窗口`halfKernelSize+1`大小，以防对边缘网格进行平滑时数组溢出。扩充后的地图如下图所示。中间区域就是感兴趣区域。
+说明一下搜索区域、感兴趣区域`ROI`和最大平滑区域。
+
+搜索区域用`Grid`类创建，指的是可能的传感器位姿的分布范围。在扫描匹配中按照位移偏移量进行匹配时，该区域限制了遍历位移偏移的数量。如下图左图所示。`searchSize`参数来自配置。
+
+感兴趣区域`ROI`用`CorrelationGrid`类创建，指的是局部相关网格地图的范围。是在搜索区域的范围基础上，向外扩充了最大激光测距有效值`margin`的距离，表示当传感器位于搜索区域的边界时，最远的有效点云也在地图范围内。如下图中间所示。
+
+最大平滑区域用`Grid`类创建，指的是当局部相关地图允许平滑时，核在地图边缘时数据不会溢出。是在局部相关地图的范围基础上，向外扩充了一半核窗口`halfKernelSize+1`大小，以防对边缘网格进行平滑时数组溢出。如下图右图所示。
 
 ![grid-3](Karto SLAM代码解析.assets/grid-3.png)
 
@@ -1203,15 +1220,17 @@ Parameter<kt_double>* m_pScanBufferMaximumScanDistance;
 
 #### MatchScan()
 
-匹配的过程的入口。设置好匹配的范围以及匹配参数，调用`CorrelateScan()`进行匹配，返回匹配率，位姿均值和协方差矩阵。根据参数不同，分为粗匹配和精匹配。
+匹配的过程的入口。设置好匹配的范围以及匹配参数，调用`CorrelateScan()`进行匹配，返回匹配率，位姿均值和协方差矩阵。根据参数不同，分为粗匹配和精匹配。粗匹配之后，如果需要还可以进一步扩充角度偏移的范围，非必需。精匹配缩小了位姿的搜索范围，以及角度分辨率，并以粗匹配的结果作为估计值开始匹配。
 
 ![scanmatch-1](Karto SLAM代码解析.assets/scanmatch-1.png)
 
 如果当前帧点云的点数为零，则使用里程计的位姿作为匹配后的位姿，返回默认协方差矩阵。
 
-将感兴趣区域地图中心移到当前点云区域。
+将感兴趣区域地图中心移到当前点云区域。感兴趣区域尺寸是固定的，以当前传感器世界坐标为中心的一个矩形，从而得到局部地图零点的偏移量。将这个偏移量设置给局部地图。
 
-在添加点云之前，重置局部地图`m_pCorrelationGrid->Clear()`。`AddScans()`插入上一步筛选出的周围临近备选激光点云，到局部地图中，将点云终端的位置转换到世界坐标系下，并将地图`Grid`在该点的属性更新为`Occ`。
+在添加点云之前，重置局部地图`m_pCorrelationGrid->Clear()`。`AddScans()`插入上一步筛选出的周围临近备选激光点云，到局部地图中，将点云终端的位置转换到世界坐标系下，并将地图`Grid`在该点的属性更新为`Occ`。地图状态只有两种：占据、未知。如果允许进行平滑`doSmear`，那么占据格子会以它为中心按照核的分布对周围的未知格子赋值，增加占据属性的分辨率。
+
+![grid-6](Karto SLAM代码解析.assets/grid-6.png)
 
 #### CorrelateScan()
 
@@ -1219,9 +1238,23 @@ Parameter<kt_double>* m_pScanBufferMaximumScanDistance;
 
 ![scanmatch-2](Karto SLAM代码解析.assets/scanmatch-2.png)
 
+`ComputeOffsets()`根据输入的中心角度值、角度分辨率和角度偏移量，计算需要细化迭代的角度数量及对应的角度值，并将输入激光数据依次旋转上述角度值，将点云终端对应的局部相关地图的序号记录到查找表中。这些在[GridIndexLookup](#GridIndexLookup)中已经进行过描述。
+
+仅在粗匹配时重置搜索地图的信息，包括偏移量和搜索地图中记录的匹配响应值。
+
+需要进行匹配的次数=X轴网格数\*Y轴网格数\*角度数=`nX*nY*nAngle`。每一个位姿匹配后记录对应的匹配响应值。
+
+![scanmatch-3](Karto SLAM代码解析.assets/scanmatch-3.png)
+
 `GetResponse()`是把所有输入角度对应的`LookupArray`中的网格序号对应的局部相关地图的状态累积，并取平均值作为匹配响应结果。
 
-`ComputePositionalCovariance()`和`ComputeAngularCovariance()`分别计算了位姿协方差和角度协方差，过程尚未详细看。
+**注：`ComputeOffsets()`  时，将传感器坐标从`(0,0)`点移动到`gridOffset`处，存储了当前网格下的点的序号；`GetResponse()`时，将取到的每个点的序号进一步移动到`gridPositionIndex`处，即传感器相对于网格的偏移量，得到局部相关网格下的每个点的序号。**
+
+`ComputePositionalCovariance()`和`ComputeAngularCovariance()`分别计算了位姿协方差和角度协方差。再次遍历所有备选匹配点，根据其匹配响应和位置偏移的关系，累计出位姿的协方差和角度的协方差。
+
+![scanmatch-4](Karto SLAM代码解析.assets/scanmatch-4.png)
+
+![scanmatch-5](Karto SLAM代码解析.assets/scanmatch-5.png)
 
 ### 图添加顶点和边
 
@@ -1261,13 +1294,74 @@ Parameter<kt_double>* m_pScanBufferMaximumScanDistance;
 
 ![graph-6](Karto SLAM代码解析.assets/graph-6.png)
 
-#### LinkNearChains()
+#### FindNearLinkedScans()
 
-该接口实现了对输入的一帧激光数据以及位姿和协方差，寻找附近的激光数据链，对每条激光数据链，首先进行`MatchScan()`局部地图匹配，如果匹配结果较好，则进行上述的`LinkChainToScan()`从激光数据链与当前激光数据帧中寻找边的信息。
+该接口根据输入的激光点云和距离阈值，寻找该距离范围内的相邻的其他激光点云集。内部主要接口为`Traverse()`，使用了深度遍历方法。
 
-![graph-7](Karto SLAM代码解析.assets/graph-7.png)
+**输入：**
 
-`FindNearChains()`接口实现了寻找邻近的激光数据链功能。首先通过`FindNearLinkedScans()`找到与输入帧相连的所有激光数据帧，遍历相连的激光数据帧，对每一帧激光数据，根据ID序号先依次递减，遍历当前帧以前的激光数据，根据位姿之间距离的远近，选择保留或者舍弃该激光数据到当前激光数据链中，超出距离范围后，结束当前遍历。一旦在遍历过程中找到输入帧，则认为该激光数据链无效。
+```c++
+LocalizedRangeScan* pScan // 当前激光点云
+kt_double maxDistance // 最大搜索范围
+```
+
+**输出：**
+
+```c++
+LocalizedRangeScanVector nearLinkedScans // 范围内的所有激光点云的集合链
+```
+
+首先从起点顶点开始遍历与之相连的其他顶点（与顶点相连的边的另一个顶点），将满足一定范围的顶点添加到`toVisit`集合中；接着以`toVisit`集合中某个顶点为起点，遍历与该顶点相连的其他顶点，将满足范围的顶点继续添加到`toVisit`集合中。不断扩充遍历范围。直到`toVisit`集合中的所有顶点都遍历到。
+
+第一次遍历：
+
+(0) 将当前scan作为起始顶点，添加到将要访问的顶点队列`toVisit`和已经看到过的顶点集`seenVertices`中
+
+(1) 以将要访问的顶点队列`toVisit`的第一个顶点作为本次循环的起始顶点`pNext`，从队列中删除第一个顶点
+
+(2) 根据预先设定的最大可接受范围，判断该顶点在最大可接受范围内`Visit()`。true->(3)，false->遍历`toVisit`队列的下一个顶点
+
+(3) 将当前顶点`pNext`添加到有效顶点数组`validVertices`中，遍历与当前顶点`pNext`相连的其他顶点（与顶点相连的边的另一个顶点），将相连的其他顶点添加到相邻顶点集`adjacentVertices`中
+
+(4) 遍历相邻顶点集`adjacentVertices`，将其中未看到过的顶点（不在`seenVertices`集合中）添加到将要访问的顶点队列`toVisit`和已经看到过过的顶点集`seenVertices`中
+
+![scan-2](Karto SLAM代码解析.assets/scan-2.png)
+
+第一次循环结果：
+
+```c++
+toVisit.size()=4
+seenVertices.size()=8
+validVertices.size()=1
+```
+
+第n次遍历，重复(1) - (4)步骤。
+
+![scan-3](Karto SLAM代码解析.assets/scan-3.png)
+
+第n次循环结果：
+
+```c++
+toVisit.size()=6
+seenVertices.size()=11
+validVertices.size()=2
+```
+
+本例的最终效果：
+
+```c++
+toVisit.size()=0
+seenVertices.size()=13
+validVertices.size()=10
+```
+
+![scan-4](Karto SLAM代码解析.assets/scan-4.png)
+
+最终得到了由满足距离条件的所有相连的激光点云形成的集合。
+
+#### FindNearChains()
+
+该接口实现了寻找邻近的激光数据链的功能。首先通过`FindNearLinkedScans()`找到与输入帧相邻的所有激光数据帧，遍历相邻的激光数据帧，对每一帧激光数据，根据ID序号先依次递减，遍历当前帧以前的激光数据，根据位姿之间距离的远近，选择保留或者舍弃该激光数据到当前激光数据链中，超出距离范围后，结束当前遍历。一旦在遍历过程中找到输入帧，则认为该激光数据链无效。
 
 完成根据ID序号依次递减的遍历后，将当前激光数据添加到当前激光数据链中。
 
@@ -1280,6 +1374,12 @@ Parameter<kt_double>* m_pScanBufferMaximumScanDistance;
 **每条激光数据链来自于以某一帧相邻的激光数据为中点，根据ID大小递减和递增后，在一定相对位移范围内的所有激光数据组成。**
 
 ![graph-8](Karto SLAM代码解析.assets/graph-8.png)
+
+#### LinkNearChains()
+
+该接口实现了对输入的一帧激光数据以及位姿和协方差，寻找附近的相连的激光数据链，对每条激光数据链，首先进行`MatchScan()`局部地图匹配，如果匹配结果较好，则进行上述的`LinkChainToScan()`从激光数据链与当前激光数据帧中寻找边的信息。
+
+![graph-7](Karto SLAM代码解析.assets/graph-7.png)
 
 ### 回环检测及优化
 
@@ -1304,76 +1404,35 @@ loopClosed = true or false // 是否闭环优化
 
 #### FindPossibleLoopClosure()
 
-该接口实现了寻找可能闭环的激光数据链功能。首先找到输入激光数据帧的一定位移范围内的所有相邻激光数据帧。在后续的寻找可能闭环的激光数据链的过程中，要剔除相邻激光数据帧。从`rStartNum`开始遍历所有的过去的激光数据帧，如果位移在一定范围内，并且不属于相邻帧，则将该帧添加到备选链中。如果属于相邻帧，则清空当前备选链，继续遍历下一帧。如果位移超过一定的范围，并且当前备选链大小达到阈值，则返回当前备选链，以及对应的遍历到当前帧的序号，便于下一次寻找可能闭环时继续遍历。如果位移超过一定的范围，且备选链大小小于阈值，则清空备选链，继续遍历下一帧。
-
-![closeloop-6](Karto SLAM代码解析.assets/closeloop-6.png)
-
-`GetReferencePose()`根据输入参数返回位姿，如果使用质心，则返回这一帧激光点云的质心位置；反之，返回传感器在世界坐标系下的位姿。
-
-`FindNearLinkedScans()`根据输入的激光点云和距离参数，寻找该距离范围内的其他激光点云。下面对该查找方法进行说明。深度遍历方法。首先从起点顶点开始遍历与之相连的其他顶点，记录满足一定范围的顶点，接着以范围内的其他某个顶点为起点，遍历与该顶点相连的其他顶点，记录满足范围的顶点。不断扩充遍历范围。
-
-**输入：**
-
-```c++
-LocalizedRangeScan* pScan // 当前激光点云
-kt_double maxDistance // 最大搜索范围
-```
-
-**输出：**
-
-```c++
-LocalizedRangeScanVector nearLinkedScans // 范围内的所有激光点云的集合链
-```
-
-**理论：**
-
-(0) 将当前scan作为起始顶点，记录到将要访问的顶点队列`toVisit`和已经访问过的顶点集`seenVertices`中
-
-(1) 以将要访问的顶点队列`toVisit`的第一个顶点作为本次循环的起始顶点`pNext`
-
-(2) 根据预先设定的最大可接受范围，判断该顶点在最大可接受范围内`Visit()`。true->(3)，false->(1)
-
-(3) 将当前顶点`pNext`添加到有效顶点数组`validVertices`中，遍历所有顶点，添加除去当前顶点的其他顶点到相邻顶点集`adjacentVertices`中
-
-(4) 遍历相邻顶点集`adjacentVertices`，将其中未访问过的顶点（不在`seenVertices`集合中）添加到将要访问的顶点队列`toVisit`和已经访问过的顶点集`seenVertices`中
+该接口实现了寻找可能闭环的激光数据链功能。首先找到输入激光数据帧的一定位移范围内的所有相邻激光数据帧。在后续的寻找可能闭环的激光数据链的过程中，要剔除相邻激光数据帧。
 
 ![closeloop-2](Karto SLAM代码解析.assets/closeloop-2.png)
 
-（第一次循环将除去起始顶点外的其他所有顶点都添加到`toVisit.size()==7`集合和`seenVertices.size()==7`集合中了，有效顶点集合中有起始顶点一个`validVertices.size()==1`）
+从`rStartNum`开始遍历所有的过去的激光数据帧，如果位移在一定范围内，并且不属于相邻帧，则将该帧添加到备选链中。
 
-接下来重复(1) - (4)步骤：
+如果属于相邻帧，则清空当前备选链，继续遍历下一帧。
 
-(1) 以将要访问的顶点队列`toVisit`的第一个顶点作为本次循环的起始顶点`pNext`
+如果位移超过一定的范围，并且当前备选链大小达到阈值（Karto SLAM中阈值为10），则返回当前备选链，以及对应的遍历到当前帧的序号，便于下一次寻找可能闭环时继续遍历。
 
-(2) 根据预先设定的最大可接受范围，判断该顶点在最大可接受范围内`Visit()`。true->(3)，false->(1)
+如果位移超过一定的范围，且备选链大小小于阈值，则清空备选链，继续遍历下一帧。
 
-(3) 将当前顶点`pNext`添加到有效顶点数组`validVertices`中，遍历所有顶点，添加除去当前顶点的其他顶点到相邻顶点集`adjacentVertices`中
-
-(4) 遍历相邻顶点集`adjacentVertices`，将其中未访问过的顶点（不在`seenVertices`集合中）添加到将要访问的顶点队列`toVisit`和已经访问过的顶点集`seenVertices`中
+下图示例，假设链的最小数量为4，则满足条件的链有两条，见绿色的圈和连线。
 
 ![closeloop-3](Karto SLAM代码解析.assets/closeloop-3.png)
 
-(第一次循环后，由于所有顶点都已经添加到`seenVertices`集合中了，第二次循环时`toVisit.size()==6`和`seenVertices.size()==7`集合的数量没有增加，每循环一次，`toVisit`集合的数量就减少一个，`validVertices`的数量仅在满足距离条件时增加)
-
-![closeloop-4](Karto SLAM代码解析.assets/closeloop-4.png)
-
-本例的最终效果：
-
-![closeloop-5](Karto SLAM代码解析.assets/closeloop-5.png)
-
-最终得到了由满足距离条件的所有激光点云形成的集合。
+`GetReferencePose()`根据输入参数返回位姿，如果使用质心，则返回这一帧激光点云的质心位置；反之，返回传感器在世界坐标系下的位姿。
 
 #### CorrectPoses()
 
 重要的优化入口，调用`Compute()`对已经添加的节点和约束进行SPA优化，调用`GetCorrections()`返回优化后的结果，并将优化后的位姿赋值`SetSensorPose(pose)`给对应的激光点云帧`GetScan(ID)`上，替换原始位姿。
 
-![SPA优化-2](Karto SLAM代码解析.assets/SPA优化-2.png)
+![closeloop-4](Karto SLAM代码解析.assets/closeloop-4.png)
 
 #### Compute()
 
 优化求解的过程调用了`sparse_bundle_adjustment`库的`doSPA()`接口。获取优化后的结果调用了`getNodes()`接口，转换成`vector<pair<ID, pose>>`形式的输出结果。
 
-![SPA优化-1](Karto SLAM代码解析.assets/SPA优化-1.png)
+![closeloop-5](Karto SLAM代码解析.assets/closeloop-5.png)
 
 **参数：**
 
@@ -1439,5 +1498,5 @@ $$
 
 ### 建图
 
-只保存了位姿节点和激光数据，作为pose_graph。
+只保存了位姿节点和激光数据，作为`pose-graph`。如果需要看到网格地图，需要将存储的激光数据按照对应的校正后的位姿插入到地图中进行显示。
 
