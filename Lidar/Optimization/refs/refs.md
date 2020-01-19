@@ -46,3 +46,6 @@
 
 (2015) Precise indoor localization for mobile laser scanner.pdf
 
+## others
+
+Introduction toMobile Robotics-Iterative Closest Point Algorithm.pdf

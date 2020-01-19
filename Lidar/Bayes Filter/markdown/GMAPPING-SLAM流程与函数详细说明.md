@@ -95,7 +95,7 @@ gmapping的实现基于粒子滤波，利用30个粒子对位姿进行优化。�
 
 
 
-## 4. 函数解析——drawFromMotion()
+## 4. 函数解析—drawFromMotion()
 
 ```c++
 //arg1: 粒子的t-1时刻的位姿(p，const orientedpoint<T,A>)
@@ -141,7 +141,7 @@ gmapping的实现基于粒子滤波，利用30个粒子对位姿进行优化。�
    //目测是两轮轴间耦合方差
    ```
 
-## 5. 函数解析——scanMatch()
+## 5. 函数解析—scanMatch()
 
 ```c++
 //scanMatch()扫描匹配获取最优的采样粒子。GMapping默认采用30个采样粒子。
@@ -273,11 +273,11 @@ gmapping的实现基于粒子滤波，利用30个粒子对位姿进行优化。�
 4. **computeActiveArea()**——后附有关网格地图的详细说明
 
      ```c++
-   //computeActiveArea()计算每个粒子相应的位姿所扫描到的可活动区域
-   //arg1: 粒子的网格地图(map，const ScanMatcherMap)
-   //arg2: 粒子的t时刻的位姿(p，const orientedpoint<T,A>)
-   //arg3: 激光雷达扫描光束终端的距离信息(readings, const double*)
-   //retn: NULL
+      //computeActiveArea()计算每个粒子相应的位姿所扫描到的可活动区域
+      //arg1: 粒子的网格地图(map，const ScanMatcherMap)
+      //arg2: 粒子的t时刻的位姿(p，const orientedpoint<T,A>)
+      //arg3: 激光雷达扫描光束终端的距离信息(readings, const double*)
+      //retn: NULL
      ```
 
    计算粒子位姿，与地图最大范围进行比较，并更新地图最大范围。
@@ -412,13 +412,13 @@ gmapping的实现基于粒子滤波，利用30个粒子对位姿进行优化。�
 
    (2.5) 删除旧的网格地图，添加新的网格地图。
 
-     
+​     
 
 4. 创建地图过程中，将扫描线的坐标添加到set容器中，具体用处尚不清楚。（也许是方便查找？）
 
 
 
-## 6. 函数解析——updateTreeWeights()
+## 6. 函数解析—updateTreeWeights()
 
 ```c++
 //arg1: 是否已经归一化(weightsAlreadyNormalized, bool)
@@ -451,7 +451,7 @@ gmapping的实现基于粒子滤波，利用30个粒子对位姿进行优化。�
 
    ![gmapping-17](GMAPPING-SLAM流程与函数详细说明.assets/gmapping-17.png)
 
-## 7. 函数解析——resample()
+## 7. 函数解析—resample()
 
 ```c++
 //arg1: 粒子的t时刻的激光雷达扫描光束终端的距离信息(plainReading ,const double*)
